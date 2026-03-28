@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🚄 Train Controller</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body {
+    margin:0;
+    font-family:'Orbitron',sans-serif;
+    background: radial-gradient(circle at center, #0a0f14, #000);
+    color:#fff;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.panel {
+    background:#111;
+    border-radius:30px;
+    padding:30px;
+    width:360px;
+    box-shadow:0 0 40px rgba(0,255,255,0.2), inset 0 0 20px #000;
+    text-align:center;
+}
+h1 { color:#00eaff; }
+.status { margin-bottom:15px; }
+.dot { width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;background:red; }
+.connected .dot { background:#00ff88;box-shadow:0 0 10px #00ff88; }
+
+button.connect {padding:10px 20px;border:none;border-radius:10px;background:#00eaff;color:#000;cursor:pointer; }
+#speed-value { margin-top:40px; color:#00eaff;font-size:18px; }
+
+.knob {
+    width:70px;height:70px;border-radius:50%;
+    background:radial-gradient(circle,#444,#111);
+    display:inline-flex;justify-content:center;align-items:center;
+    margin:12px;cursor:pointer;
+    box-shadow: inset 0 0 10px #000, 0 0 15px rgba(0,255,255,0.2);
+}
+.knob.active { box-shadow:0 0 20px #ffe600; }
+.knob.disabled { opacity:0.4; cursor:not-allowed; pointer-events:none; }
+
+.lever-container { margin:40px 0; }
+
+.track {
+    width:12px;height:260px;background:#222;margin:0 auto;
+    border-radius:10px;position:relative;
+}
+.track.disabled { opacity:0.3; pointer-events:none; }
+
+.handle {
+    width:50px;height:50px;
+    background:linear-gradient(45deg,#00eaff,#007bff);
+    border-radius:50%;position:absolute;left:-19px;
+    cursor:pointer;box-shadow:0 0 15px #00eaff;
+}
+.handle.disabled { cursor:not-allowed; filter:grayscale(1); pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div class="panel">
+    <h1>Train Control</h1>
+
+    <div class="status" id="status">
+        <span class="dot"></span> Disconnected
+    </div>
+
+    <button class="connect" onclick="toggleConnection()" id="connectBtn">Connect</button>
+
+    <div class="lever-container">
+        <div class="track disabled" id="track">
+            <div class="handle disabled" id="handle"></div>
+        </div>
+        <div id="speed-value">Speed: 0</div>
+    </div>
+
+    <div>
+        <div class="knob disabled" id="brakeKnob" onclick="brake()"><span>Brake</span></div>
+        <div class="knob disabled" id="lightsKnob" onclick="toggleLights()"><span>Lights</span></div>
+    </div>
+</div>
+
+<script>
+// ===== BLUETOOTH =====
+const WEDO_CONTROL_SERVICE_UUID = "00004f0e-1212-efde-1523-785feabcd123";
+const WEDO_SERVICE_UUID = "00001523-1212-efde-1523-785feabcd123";
+const WEDO_OUTPUT_UUID  = "00001565-1212-efde-1523-785feabcd123";
+const WEDO_DISCONNECT_UUID = "0000152e-1212-efde-1523-785feabcd123";
+const WEDO_PORT_UUID = "00001527-1212-efde-1523-785feabcd123";
+
+const WEDO_SENSORS = [
+    { key: [1,0,2,1,0,0,0,1,0,0,0], value: "Motor" },
+    { key: [1,1,2,1,0,0,0,1,0,0,0], value: "Motor" },
+    { key: [1,0,8,1,0,0,0,1,0,0,0], value: "Light" },
+    { key: [1,1,8,1,0,0,0,1,0,0,0], value: "Light" },
+    { key: [0], value: "Nothing" }
+];
+
+function equals(a,b){ return a.length===b.length && a.every((v,i)=>v===b[i]); }
+function findSensor(input){ return WEDO_SENSORS.find(e=>equals(e.key,input))?.value || "Unknown"; }
+
+let device, output_characteristic, disconnect_characteristic, port_characteristic;
+let motor_port=null, lights_port=null, lightsOn=false;
+
+const statusEl = document.getElementById("status");
+const lightsKnob = document.getElementById("lightsKnob");
+const brakeKnob = document.getElementById("brakeKnob");
+const handle = document.getElementById("handle");
+const track = document.getElementById("track");
+
+function updateUIStates(){
+    const motorActive = motor_port !== null;
+    const lightsActive = lights_port !== null;
+    const connected = device?.gatt?.connected;
+
+    handle.classList.toggle("disabled", !motorActive || !connected);
+    track.classList.toggle("disabled", !motorActive || !connected);
+
+    lightsKnob.classList.toggle("disabled", !lightsActive || !connected);
+    brakeKnob.classList.toggle("disabled", !motorActive || !connected);
+
+    if(!motorActive){
+        setSpeed(0, true);
+    }
+
+    if(!lightsActive){
+        lightsKnob.classList.remove("active");
+        lightsOn=false;
+    }
+}
+
+function setConnectedUI(connected){
+    const btn = document.getElementById("connectBtn");
+    if(connected){
+        statusEl.innerHTML='<span class="dot"></span> Connected';
+        statusEl.classList.add("connected");
+        btn.textContent="Disconnect";
+    } else {
+        statusEl.innerHTML='<span class="dot"></span> Disconnected';
+        statusEl.classList.remove("connected");
+        btn.textContent="Connect";
+    }
+}
+
+async function connect(){
+    device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices:true,
+        optionalServices:[WEDO_SERVICE_UUID,WEDO_CONTROL_SERVICE_UUID]
+    });
+
+    device.addEventListener('gattserverdisconnected', ()=> setConnectedUI(false));
+
+    const server = await device.gatt.connect();
+    const output_service = await server.getPrimaryService(WEDO_CONTROL_SERVICE_UUID);
+    const service = await server.getPrimaryService(WEDO_SERVICE_UUID);
+
+    output_characteristic = await output_service.getCharacteristic(WEDO_OUTPUT_UUID);
+    disconnect_characteristic = await service.getCharacteristic(WEDO_DISCONNECT_UUID);
+    port_characteristic = await service.getCharacteristic(WEDO_PORT_UUID);
+
+    await port_characteristic.startNotifications();
+
+    port_characteristic.addEventListener('characteristicvaluechanged',(event)=>{
+        const value = new Uint8Array(event.target.value.buffer);
+        const port = value[0];
+        const type = findSensor(value.slice(1));
+
+        if(type==="Motor") motor_port=port;
+        else if(type==="Light") lights_port=port;
+        else if(type==="Nothing"){
+            if(motor_port===port) motor_port=null;
+            if(lights_port===port) lights_port=null;
+        }
+
+        updateUIStates();
+    });
+
+    setConnectedUI(true);
+    updateUIStates();
+}
+
+function disconnect(){
+    if(device?.gatt?.connected){
+        disconnect_characteristic.writeValue(new Uint8Array([0x01]));
+        device.gatt.disconnect();
+    }
+    output_characteristic=null;
+    motor_port=null;
+    lights_port=null;
+    lightsOn=false;
+    updateUIStates();
+    setConnectedUI(false);
+}
+
+async function toggleConnection(){
+    if(device?.gatt?.connected) disconnect();
+    else await connect();
+}
+
+let lastSend=0;
+function run(speed){
+    const now=Date.now();
+    if(now-lastSend<100) return;
+    lastSend=now;
+    if(!output_characteristic || motor_port===null) return;
+
+    output_characteristic.writeValue(
+        new Uint8Array([motor_port,0x01,0x01,Number(speed)])
+    );
+}
+
+function brake(){
+    if(brakeKnob.classList.contains("disabled")) return;
+    if(!output_characteristic || motor_port===null) return;
+    setSpeed(0);
+}
+
+function toggleLights(){
+    if(lightsKnob.classList.contains("disabled")) return;
+    if(!output_characteristic || lights_port===null) return;
+    lightsOn=!lightsOn;
+    lightsKnob.classList.toggle("active",lightsOn);
+
+    output_characteristic.writeValue(
+        new Uint8Array([lights_port,0x01,0x01,lightsOn?100:0])
+    );
+}
+
+// ===== LEVER CONTROL =====
+let speed=0;
+const speedText=document.getElementById("speed-value");
+let dragging=false;
+
+function setSpeed(val, force=false){
+    if((motor_port===null || !device?.gatt?.connected) && !force) return;
+
+    speed=Math.max(-100,Math.min(100,val));
+    const rect=track.getBoundingClientRect();
+    const percent=(speed+100)/200;
+    const y=(1-percent)*rect.height;
+    handle.style.top=(y-25)+"px";
+    speedText.textContent="Speed: "+speed;
+    if(!force) run(speed);
+}
+
+window.addEventListener("load",()=>{
+    setSpeed(0, true);
+});
+
+function startDrag(){ if(motor_port!==null && device?.gatt?.connected) dragging=true; }
+function stopDrag(){ dragging=false; }
+
+handle.addEventListener("mousedown",startDrag);
+document.addEventListener("mouseup",stopDrag);
+handle.addEventListener("touchstart",startDrag,{passive:true});
+document.addEventListener("touchend",stopDrag);
+
+function move(clientY){
+    if(!dragging) return;
+    const rect=track.getBoundingClientRect();
+    let y=clientY-rect.top;
+    y=Math.max(0,Math.min(rect.height,y));
+    let percent=1-(y/rect.height);
+    setSpeed(Math.round((percent*200)-100));
+}
+
+document.addEventListener("mousemove",(e)=>move(e.clientY));
+document.addEventListener("touchmove",(e)=>move(e.touches[0].clientY),{passive:false});
+
+// ===== KEYBOARD =====
+document.addEventListener("keydown",(e)=>{
+    if(motor_port!==null && device?.gatt?.connected && ["ArrowUp","w","W"].includes(e.key)){
+        e.preventDefault(); setSpeed(speed+5);
+    }
+    if(motor_port!==null && device?.gatt?.connected && ["ArrowDown","s","S"].includes(e.key)){
+        e.preventDefault(); setSpeed(speed-5);
+    }
+    if(e.key===" "){ e.preventDefault(); brake(); }
+    if(e.key.toLowerCase()==="l"){ toggleLights(); }
+});
+</script>
+
+</body>
+</html>
