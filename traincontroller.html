@@ -300,19 +300,40 @@ document.addEventListener("keydown",(e)=>{
 });
 
 // ===== BROWSER CHECK =====
-function isChrome(){
+function isSupportedBrowser(){
+    // 1) Must support Web Bluetooth
+    if (!navigator.bluetooth) return false;
+
+    // 2) Must be secure context (required for Web Bluetooth)
+    if (!window.isSecureContext) return false;
+
+    // 3) Prefer modern detection (Chromium brand)
+    if (navigator.userAgentData && navigator.userAgentData.brands) {
+        const brands = navigator.userAgentData.brands.map(b => b.brand);
+        const isChromeBrand = brands.includes("Google Chrome") || brands.includes("Chromium");
+        if (!isChromeBrand) return false;
+    } else {
+        // 4) Fallback: older browsers
+        const ua = navigator.userAgent;
+        const vendor = navigator.vendor || "";
+
+        // Must be Google Chrome vendor
+        if (!vendor.includes("Google")) return false;
+
+        // Must contain Chrome
+        if (!ua.includes("Chrome")) return false;
+    }
+
+    // 5) Block known incompatible Chromium variants
+    if (navigator.brave !== undefined) return false;
     const ua = navigator.userAgent;
+    if (ua.includes("Edg") || ua.includes("OPR") || ua.includes("SamsungBrowser") || ua.includes("YaBrowser") || ua.includes("Vivaldi")) return false;
 
-    const isChromium = /Chrome/.test(ua);
-    const isBrave = navigator.brave !== undefined;
-    const isEdge = /Edg/.test(ua);
-    const isOpera = /OPR/.test(ua);
-
-    return isChromium && !isBrave && !isEdge && !isOpera;
+    return true;
 }
 
 window.addEventListener("load",()=>{
-    if(!isChrome()){
+    if(!isSupportedBrowser()){
         document.getElementById("browser-warning").style.display = "block";
     }
 });
