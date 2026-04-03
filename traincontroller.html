@@ -88,6 +88,54 @@ button.connect {padding:10px 20px;border:none;border-radius:10px;background:#00e
     text-shadow: 0 0 8px #00eaff;
 }
 
+.fullscreen-btn {
+    position: fixed;
+    bottom: 15px;
+    right: 15px;
+
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+
+    background: radial-gradient(circle, #00eaff, #007bff);
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    font-size: 20px;
+    color: #000;
+
+    cursor: pointer;
+
+    box-shadow: 0 0 12px rgba(0,255,255,0.5), inset 0 0 8px #000;
+
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+    user-select: none;
+    -webkit-user-select: none;
+
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+    .fullscreen-btn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 0 20px #00eaff;
+    }
+}
+
+.fullscreen-btn:active {
+    transform: scale(0.92);
+    box-shadow: 0 0 8px #00eaff;
+}
+
+.fullscreen-btn::before {
+    content: "";
+    position: absolute;
+    inset: -10px;
+}
 </style>
 </head>
 <body>
@@ -98,7 +146,12 @@ button.connect {padding:10px 20px;border:none;border-radius:10px;background:#00e
 
 <div class="panel">
     <h1>Train Control</h1>
-
+    <div class="fullscreen-btn" onclick="toggleFullscreen()" id="fsBtn">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"
+                stroke="black" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+    </div>
     <div class="status" id="status">
         <span class="dot"></span> Disconnected
     </div>
@@ -149,6 +202,21 @@ const lightsKnob = document.getElementById("lightsKnob");
 const brakeKnob = document.getElementById("brakeKnob");
 const handle = document.getElementById("handle");
 const track = document.getElementById("track");
+const fsBtn = document.getElementById("fsBtn");
+
+function toggleFullscreen(){
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(console.error);
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+function updateFSIcon(){
+    fsBtn.textContent = document.fullscreenElement ? "✕" : "⛶";
+}
+
+document.addEventListener("fullscreenchange", updateFSIcon);
 
 function updateUIStates(){
     const motorActive = motor_port !== null;
