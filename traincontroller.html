@@ -59,9 +59,24 @@ button.connect {padding:10px 20px;border:none;border-radius:10px;background:#00e
     cursor:pointer;box-shadow:0 0 15px #00eaff;
 }
 .handle.disabled { cursor:not-allowed; filter:grayscale(1); pointer-events:none; }
+
+#browser-warning {
+    display:none;
+    position:fixed;top:0;left:0;width:100%;
+    background:#ff523b;
+    color:#fff;
+    text-align:center;
+    padding:10px;
+    font-size:14px;
+    z-index:9999;
+}
 </style>
 </head>
 <body>
+
+<div id="browser-warning">
+    ⚠️ This app only works properly in Google Chrome. Please switch to Google Chrome or <a style="color:#fff" href="https://www.google.com/chrome/" target="_blank">install it</a>.
+</div>
 
 <div class="panel">
     <h1>Train Control</h1>
@@ -282,6 +297,24 @@ document.addEventListener("keydown",(e)=>{
     }
     if(e.key===" "){ e.preventDefault(); brake(); }
     if(e.key.toLowerCase()==="l"){ toggleLights(); }
+});
+
+// ===== BROWSER CHECK =====
+function isChrome(){
+    const ua = navigator.userAgent;
+
+    const isChromium = /Chrome/.test(ua);
+    const isBrave = navigator.brave !== undefined;
+    const isEdge = /Edg/.test(ua);
+    const isOpera = /OPR/.test(ua);
+
+    return isChromium && !isBrave && !isEdge && !isOpera;
+}
+
+window.addEventListener("load",()=>{
+    if(!isChrome()){
+        document.getElementById("browser-warning").style.display = "block";
+    }
 });
 </script>
 
